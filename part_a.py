@@ -1,16 +1,13 @@
 """
 Part A — SQL. Edit the SQL string below, then run: python3 part_a.py
-
-Tables (views over the CSVs in data/):
-    installs, events, spend, campaigns, fx
-
-The engine is DuckDB. If you're more at home in another dialect, set DIALECT
-below and write in that — it's transpiled to DuckDB before running.
 """
 from starter import duckdb_connection
 
+#Tables (views over the CSVs in data/, named after the files):
+# mmp_installs, mmp_events, network_spend, campaigns, fx_rates
+
 SQL = """
-SELECT * FROM installs LIMIT 5
+SELECT * FROM mmp_installs LIMIT 5
 """
 
 # Optional: write in the dialect you know best; it's transpiled to DuckDB.

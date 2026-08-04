@@ -39,8 +39,9 @@ Using SQL (any dialect thinking is fine):
 > **Compute weekly install-cohort D7 session retention.** For each install week:
 > cohort size and the % of users with at least one session on day 7 after install.
 
-`part_a.py` has DuckDB set up over the data files, with the tables `installs`,
-`events`, `spend`, `campaigns`, and `fx` ready to query. DuckDB's SQL is
+`part_a.py` has DuckDB set up over the data files, with each file available as a
+table of the same name: `mmp_installs`, `mmp_events`, `network_spend`,
+`campaigns`, and `fx_rates`. DuckDB's SQL is
 Postgres-flavored — but if you're more at home in another dialect (Snowflake,
 BigQuery, T-SQL, ...), set `DIALECT` at the top of the file and write in that;
 it's transpiled automatically. Write your query in the `SQL` string, then run it
@@ -50,7 +51,7 @@ from the repo root:
 python3 part_a.py
 ```
 
-It starts with a `SELECT * FROM installs LIMIT 5` placeholder, so run it once
+It starts with a `SELECT * FROM mmp_installs LIMIT 5` placeholder, so run it once
 as-is to check your setup. Results print as a table; re-run after each edit.
 
 Please close your AI assistant for this part — we want to see your own SQL.
