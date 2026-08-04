@@ -5,9 +5,9 @@ jump straight into the interesting part.
 
 ## Setup (5 minutes)
 
+Clone this repo, then:
+
 ```bash
-git clone <this-repo>
-cd kohort-tech-interview
 python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
 pip install -r requirements.txt
 python3 starter.py
