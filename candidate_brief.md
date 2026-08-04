@@ -3,8 +3,8 @@
 Welcome! This is a collaborative working session, not a quiz. We'll work through a
 realistic version of the problems our data team solves every day. Think out loud,
 ask questions, and use whatever workflow you'd use on the job — **AI assistants
-(Claude etc.) are allowed and encouraged**. We're interested in how you work, not
-just the end result.
+(Claude etc.) are allowed and encouraged from Part B onward**; Part A is written
+without them. We're interested in how you work, not just the end result.
 
 ## Scenario
 
@@ -34,10 +34,27 @@ not be assumed clean.
 
 ## Part A — SQL (~15 min)
 
-Using SQL (DuckDB is set up; any dialect thinking is fine):
+Using SQL (any dialect thinking is fine):
 
 > **Compute weekly install-cohort D7 session retention.** For each install week:
 > cohort size and the % of users with at least one session on day 7 after install.
+
+`part_a.py` has DuckDB set up over the data files, with the tables `installs`,
+`events`, `spend`, `campaigns`, and `fx` ready to query. DuckDB's SQL is
+Postgres-flavored — but if you're more at home in another dialect (Snowflake,
+BigQuery, T-SQL, ...), set `DIALECT` at the top of the file and write in that;
+it's transpiled automatically. Write your query in the `SQL` string, then run it
+from the repo root:
+
+```bash
+python3 part_a.py
+```
+
+It starts with a `SELECT * FROM installs LIMIT 5` placeholder, so run it once
+as-is to check your setup. Results print as a table; re-run after each edit.
+
+Please close your AI assistant for this part — we want to see your own SQL.
+Syntax questions to the interviewer are fine. From Part B onward, AI is encouraged.
 
 We'll discuss your approach and anything you'd watch out for.
 
