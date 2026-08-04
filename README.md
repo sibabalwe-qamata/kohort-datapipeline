@@ -25,11 +25,7 @@ the start.
 - Part A runs on DuckDB, but you can write SQL in the dialect you know best:
 set `DIALECT` at the top of `part_a.py` to e.g. `"postgres"`, `"snowflake"`,
 `"bigquery"`, `"mysql"`, or `"tsql"` (default `"duckdb"`).
-- At the end, please commit and push your work to a branch named after you:
-
-```bash
-git checkout -b <your-first-name>
-git add -A && git commit -m "interview session"
-git push -u origin <your-first-name>
-```
+- At the end, please email your working files — `part_a.py`, your Part B
+script/notebook, and your issues log — to **michelle@kohort.io**. Please don't
+push branches to this repo.
 
