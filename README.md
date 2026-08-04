@@ -1,9 +1,8 @@
 # Kohort Technical Interview
 
-Welcome! Please follow the setup below **before the session starts** so we can
-jump straight into the interesting part.
+Welcome! Please follow the setup below.
 
-## Setup (5 minutes)
+## Setup 
 
 Clone this repo, then:
 
@@ -15,17 +14,13 @@ python3 starter.py
 
 If `starter.py` prints the row counts of five data files, you're ready.
 
-**No local Python?** Open this repo in a GitHub Codespace (green "Code" button →
-Codespaces → "Create codespace") — everything is preinstalled. Run
-`python3 starter.py` in the terminal to verify.
-
 ## During the session
 
 - Use any editor or notebook you like.
 - **AI assistants (Claude etc.) are allowed and encouraged** — keep the assistant
-  visible on your shared screen; how you work with it is part of the session.
+visible on your shared screen; how you work with it is part of the session.
 - Task details are in `candidate_brief.md` — we'll walk through it together at
-  the start.
+the start.
 - At the end, please commit and push your work to a branch named after you:
 
 ```bash
@@ -34,5 +29,3 @@ git add -A && git commit -m "interview session"
 git push -u origin <your-first-name>
 ```
 
-Any setup problems, contact us before the session — don't burn interview time on
-pip issues.
