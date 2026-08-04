@@ -1,0 +1,11 @@
+campaign_id,campaign_name,network
+CAMP-001,Astro US Broad,metaads
+CAMP-002,Astro EU Lookalike,metaads
+CAMP-003,Miners UAC Global,googleuac
+CAMP-004,Galaxy Blast US,googleuac
+CAMP-005,Astro TikTok US,tikboom
+CAMP-006,Astro TikTok SEA,tikboom
+CAMP-007,Nebula Rewarded EU,adglow
+CAMP-008,Nebula Rewarded LATAM,adglow
+CAMP-009,Unity Video US,unityvid
+CAMP-010,Unity Video ROW,unityvid
