@@ -1,17 +1,25 @@
-# Kohort Technical Interview
+# Kohort Data Engineering Take-Home
 
-Welcome! Please follow the setup below.
+## What this is
 
-## Setup 
+A take-home for the Data Engineer role at Kohort, followed by a 60-minute
+conversation about what you built. Most people spend 4–6 hours. Please stop at 8
+and write what you would do next in `NOTES.md`; we grade what is there, not what
+is promised.
 
-Clone this repo, then follow the steps for your platform.
+The task itself is in `ASSIGNMENT.md`. Read it fully before writing code.
+
+## Setup
+
+Create your own copy of this repository first (see **Submission** below), clone
+it, then follow the steps for your platform.
 
 **macOS / Linux:**
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
 pip install -r requirements.txt
-python3 starter.py
+python3 check_env.py
 ```
 
 **Windows (PowerShell):**
@@ -20,7 +28,7 @@ python3 starter.py
 python -m venv .venv
 .venv\Scripts\Activate.ps1   # optional but recommended
 pip install -r requirements.txt
-python starter.py
+python check_env.py
 ```
 
 **Windows (Command Prompt):**
@@ -29,7 +37,7 @@ python starter.py
 python -m venv .venv
 .venv\Scripts\activate.bat   # optional but recommended
 pip install -r requirements.txt
-python starter.py
+python check_env.py
 ```
 
 Windows notes:
@@ -42,20 +50,35 @@ or use Command Prompt instead.
 use the `py` launcher (`py -m venv .venv`).
 - In Git Bash, use `source .venv/Scripts/activate`.
 
-If `starter.py` prints the row counts of five data files, you're ready.
+If `check_env.py` prints the row counts of five data files, you're ready.
 
-## During the session
+## Rules
 
-- Use any editor or notebook you like.
-- **AI assistants (Claude etc.) are allowed and encouraged from Part B onward** —
-keep the assistant visible on your shared screen; how you work with it is part of
-the session. Part A (SQL) is written without an assistant.
-- Task details are in `candidate_brief.md` — we'll walk through it together at
-the start.
-- Part A runs on DuckDB, but you can write SQL in the dialect you know best:
-set `DIALECT` at the top of `part_a.py` to e.g. `"postgres"`, `"snowflake"`,
-`"bigquery"`, `"mysql"`, or `"tsql"` (default `"duckdb"`).
-- At the end, please email your working files — `part_a.py`, your Part B
-script/notebook, and your issues log — to **michelle@kohort.io**. Please don't
-push branches to this repo.
+- Use any tools you would use at work, including AI assistants. In the follow-up
+we will ask you to explain and change any part of the code live; code you cannot
+explain counts against you, using AI does not.
+- Your pipeline will also be run on a second dataset with the same schema and
+date range but different values and a few extra edge cases, so do not hard-code
+anything from this one.
+- The follow-up includes one short SQL exercise done without an assistant.
+- If the spec is ambiguous, pick an interpretation, state it in `NOTES.md`, and
+carry on; that is what we do with studios too.
 
+## Submission
+
+Click **Use this template → Create a new repository** on GitHub and make it
+**Private**. Commit as you go — we read the history (a single squash is not
+disqualifying, but a story helps). Commit `output/` from a default run. When
+done, add **@TODO-github-handle** as a collaborator and email the repo link to
+**michelle@kohort.io**. If you would rather not use GitHub, email a zip of the
+repo **including the `.git` folder** instead. Please do not fork publicly or
+publish solutions.
+
+## What happens next
+
+We run our grader on your repo within two working days, then schedule the
+60-minute follow-up within a week. You hear the outcome either way.
+
+## Questions
+
+Email michelle@kohort.io.

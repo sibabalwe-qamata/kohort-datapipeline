@@ -1,7 +1,10 @@
 .venv/
 __pycache__/
-.ipynb_checkpoints/
 *.pyc
-
-# interviewer-only materials - never commit
-internal/
+.ipynb_checkpoints/
+.pytest_cache/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.claude/
+.DS_Store

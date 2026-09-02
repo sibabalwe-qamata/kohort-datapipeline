@@ -1,0 +1,170 @@
+{
+  "as_of": "2026-05-10",
+  "checks": [
+    {
+      "id": "campaign_id_normalised",
+      "severity": "warning",
+      "rows_affected": 3,
+      "action": "corrected",
+      "summary": "3 paid installs had a campaign value that needed trimming, upper-casing or name->id mapping; an exact-match join would have dropped them.",
+      "metrics": {}
+    },
+    {
+      "id": "campaign_unmapped",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "excluded",
+      "summary": "0 paid installs carry a campaign value that maps to no known campaign; excluded rather than guessed.",
+      "metrics": {}
+    },
+    {
+      "id": "csv_dtype_inference",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "corrected",
+      "summary": "Default CSV inference types mmp_events.revenue_usd as Float64 because the leading rows are sessions with empty revenue; all inputs are read with explicit schemas.",
+      "metrics": {
+        "inferred_dtype": "Float64"
+      }
+    },
+    {
+      "id": "duplicate_install_rows",
+      "severity": "warning",
+      "rows_affected": 2,
+      "action": "removed",
+      "summary": "2 exact duplicate install rows (7.69% of the file) collapsed before counting.",
+      "metrics": {
+        "pct_of_raw_rows": 7.69
+      }
+    },
+    {
+      "id": "events_before_install",
+      "severity": "warning",
+      "rows_affected": 1,
+      "action": "flagged",
+      "summary": "1 events (2.44%) are timestamped before the user's install, affecting 1 users; looks like device clock skew. Kept and flagged; retention is unaffected (they cannot fall in the D7 window). Ask the studio.",
+      "metrics": {
+        "users_affected": 1,
+        "earliest_offset_minutes": -30.0
+      }
+    },
+    {
+      "id": "events_without_install",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 events belong to 0 user(s) with no install row; excluded from cohorts, quarantined for the studio.",
+      "metrics": {
+        "users": [],
+        "revenue_usd": 0.0
+      }
+    },
+    {
+      "id": "fx_rate_missing",
+      "severity": "error",
+      "rows_affected": 1,
+      "action": "flagged",
+      "summary": "1 non-USD spend rows have no FX rate for their date; spend_usd left empty, not zero.",
+      "metrics": {}
+    },
+    {
+      "id": "implausible_purchase_amount",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 purchase(s) above 5,000 USD (max 0.0); likely a cents-vs-dollars error. Quarantined pending studio confirmation, not capped or deleted.",
+      "metrics": {
+        "max_revenue_usd": 0.0,
+        "users": []
+      }
+    },
+    {
+      "id": "install_reinstall_rows",
+      "severity": "warning",
+      "rows_affected": 0,
+      "action": "removed",
+      "summary": "0 further rows removed because the user already had an earlier install; earliest install kept.",
+      "metrics": {}
+    },
+    {
+      "id": "negative_revenue_events",
+      "severity": "info",
+      "rows_affected": 1,
+      "action": "none",
+      "summary": "1 purchase events have negative revenue (refunds, total -9.99); kept so revenue is net.",
+      "metrics": {
+        "total_usd": -9.99
+      }
+    },
+    {
+      "id": "network_day_bucketing_suspected",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "No network shows the volatile-daily / stable-weekly gap pattern.",
+      "metrics": {
+        "flagged_networks": [],
+        "per_network": {
+          "adglow": {
+            "daily_gap_std": 0.0,
+            "daily_gap_mean": 0.0,
+            "weekly_gap_mean": 0.0
+          },
+          "googleuac": {
+            "daily_gap_std": 0.0,
+            "daily_gap_mean": 0.0,
+            "weekly_gap_mean": 0.0
+          },
+          "metaads": {
+            "daily_gap_std": 0.0,
+            "daily_gap_mean": 0.0,
+            "weekly_gap_mean": 0.0
+          },
+          "tikboom": {
+            "daily_gap_std": 0.0,
+            "daily_gap_mean": 0.0,
+            "weekly_gap_mean": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": "organic_installs_excluded",
+      "severity": "info",
+      "rows_affected": 2,
+      "action": "excluded",
+      "summary": "2 organic installs excluded from the paid summary (kept in retention).",
+      "metrics": {}
+    },
+    {
+      "id": "spend_fx_converted_rows",
+      "severity": "info",
+      "rows_affected": 1,
+      "action": "corrected",
+      "summary": "1 spend rows were reported in a non-USD currency and converted with the same-day rate.",
+      "metrics": {}
+    },
+    {
+      "id": "spend_missing",
+      "severity": "error",
+      "rows_affected": 1,
+      "action": "flagged",
+      "summary": "1 campaign-days have MMP installs but no spend report at all; shown as missing, never as CPI 0.",
+      "metrics": {
+        "googleuac": {
+          "rows": 1,
+          "from": "2026-05-06",
+          "to": "2026-05-06"
+        }
+      }
+    },
+    {
+      "id": "spend_restated_rows",
+      "severity": "warning",
+      "rows_affected": 0,
+      "action": "removed",
+      "summary": "0 spend rows were superseded by a later report for the same (stat_date, network, campaign_id); latest reported_at wins. Summing the file would double count.",
+      "metrics": {}
+    }
+  ]
+}
