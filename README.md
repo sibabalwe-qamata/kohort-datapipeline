@@ -4,13 +4,43 @@ Welcome! Please follow the setup below.
 
 ## Setup 
 
-Clone this repo, then:
+Clone this repo, then follow the steps for your platform.
+
+**macOS / Linux:**
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
 pip install -r requirements.txt
 python3 starter.py
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1   # optional but recommended
+pip install -r requirements.txt
+python starter.py
+```
+
+**Windows (Command Prompt):**
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat   # optional but recommended
+pip install -r requirements.txt
+python starter.py
+```
+
+Windows notes:
+
+- If PowerShell blocks the activate script ("execution of scripts is disabled"),
+run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` once,
+or use Command Prompt instead.
+- If `python` opens the Microsoft Store, install Python from
+[python.org](https://www.python.org/downloads/) (tick "Add Python to PATH"), or
+use the `py` launcher (`py -m venv .venv`).
+- In Git Bash, use `source .venv/Scripts/activate`.
 
 If `starter.py` prints the row counts of five data files, you're ready.
 
