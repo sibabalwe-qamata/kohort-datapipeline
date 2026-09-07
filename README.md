@@ -69,7 +69,7 @@ carry on; that is what we do with studios too.
 Click **Use this template → Create a new repository** on GitHub and make it
 **Private**. Commit as you go — we read the history (a single squash is not
 disqualifying, but a story helps). Commit `output/` from a default run. When
-done, add **@TODO-github-handle** as a collaborator and email the repo link to
+done, add **@MichelleSchlunz** as a collaborator and email the repo link to
 **michelle@kohort.io**. If you would rather not use GitHub, email a zip of the
 repo **including the `.git` folder** instead. Please do not fork publicly or
 publish solutions.

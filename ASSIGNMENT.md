@@ -45,8 +45,8 @@ python -m astro_recon --data <dir> --out <dir> [--as-of YYYY-MM-DD]
 - Creates `--out` if needed and overwrites the three files below. Exit code 0 on success. A missing input
   file, a missing required column or an unparseable `--as-of` must exit non-zero with a message on stderr.
 - No network access at runtime. Under two minutes on `data/`.
-- The module name is fixed only so our grader can invoke it. Everything inside is yours. Polars, Pandas or
-  DuckDB — library choice is not graded.
+- The module name is fixed only so our grader can invoke it. Everything inside is yours. For Outputs 1 and 3,
+  Polars, Pandas or DuckDB — library choice is not graded. Output 2 must be SQL run in DuckDB (see below).
 
 ## Output 1 — `output/daily_campaign_summary.csv`
 
@@ -89,7 +89,8 @@ cleaned paid install and every campaign-day that has at least one visible spend 
 
 Weekly install-cohort D7 session retention. **This metric must be defined in SQL and executed with DuckDB**
 from your pipeline (a `.sql` file or a string constant is fine). Metric definitions at Kohort are read by analysts,
-so they live in SQL. Bind `as_of` as a query parameter; do not format it into the string.
+so they live in SQL. We name DuckDB because it runs offline from `requirements.txt` on every platform and the
+follow-up SQL exercise uses it too. Bind `as_of` as a query parameter; do not format it into the string.
 
 | column | rule |
 |---|---|
