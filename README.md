@@ -82,3 +82,34 @@ We run our grader on your repo within two working days, then schedule the
 ## Questions
 
 Email michelle@kohort.io.
+
+---
+
+## Solution: how to run it
+
+```bash
+pip install -r requirements.txt
+python -m astro_recon --data data --out output
+python -m astro_recon --data data --out output_asof --as-of 2026-06-15
+pytest
+```
+
+- The package sits at the repo root (`astro_recon/`), so `python -m astro_recon` works from the root straight
+  after `pip install -r requirements.txt`. `pip install -e .` is **optional**; a `pyproject.toml` is shipped for
+  it and declares the SQL file as package data.
+- Exit code 0 on success. A missing `--data` folder, a missing input file, a missing required column or an
+  unparseable `--as-of` exits with code 2 and a message on stderr.
+- Developed and tested on Python 3.14 with polars 2.0.0 and duckdb 1.5.6 (Windows).
+
+| Where | What |
+|---|---|
+| `astro_recon/io.py` | reads every column as text, casts explicitly, counts rows it has to reject |
+| `astro_recon/visibility.py` | the `--as-of` rule |
+| `astro_recon/installs.py` | install cleaning rules 1 to 5 |
+| `astro_recon/spend.py` | latest report per key, FX conversion |
+| `astro_recon/summary.py` | Output 1 |
+| `astro_recon/sql/weekly_retention.sql`, `retention.py` | Output 2, defined in SQL and run in DuckDB |
+| `astro_recon/checks.py`, `quality.py` | Output 3 |
+| `astro_recon/pipeline.py`, `cli.py`, `writers.py` | orchestration, command line, deterministic writers |
+| `NOTES.md`, `DESIGN.md` | decisions and numbers; production design |
+| `output/` | a default run on `data/` |

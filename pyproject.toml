@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astro-recon"
+version = "0.1.0"
+description = "Astro Miners reconciliation pipeline: MMP installs and events against ad-network spend."
+requires-python = ">=3.10"
+# Kept in step with requirements.txt, which also lists the test tools.
+dependencies = [
+    "polars>=1.0,<3",
+    "duckdb>=1.0,<2",
+]
+
+[tool.setuptools]
+# Named explicitly: the repo root also holds data/, data_mini/, output/ and tests/, and
+# setuptools refuses to guess which folder is the package.
+packages = ["astro_recon"]
+
+[tool.setuptools.package-data]
+astro_recon = ["sql/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
