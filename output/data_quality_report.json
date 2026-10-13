@@ -1,0 +1,379 @@
+{
+  "as_of": "2026-07-20",
+  "checks": [
+    {
+      "id": "campaign_id_normalised",
+      "severity": "warning",
+      "rows_affected": 3272,
+      "action": "corrected",
+      "summary": "3272 paid installs carried a campaign value that was not the canonical id: 2504 matched after trimming or upper-casing, 768 by campaign name. An exact-match join would have dropped them.",
+      "metrics": {
+        "matched_by_id_after_trim_or_case": 2504,
+        "matched_by_name": 768
+      }
+    },
+    {
+      "id": "campaign_reference_ambiguous",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 rows of campaigns.csv share their campaign name with another id (compared case-insensitively). Such a name cannot point to one id, so an install carrying only the name is not matched by guessing.",
+      "metrics": {
+        "names": []
+      }
+    },
+    {
+      "id": "campaign_unmapped",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "excluded",
+      "summary": "0 paid installs carry a campaign value that matches no campaign id or name (0 distinct values, see raw_values). They are excluded from the summary and counted here; nothing is guessed or fuzzy-matched.",
+      "metrics": {
+        "distinct_values": 0,
+        "raw_values": []
+      }
+    },
+    {
+      "id": "duplicate_event_rows",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 event rows are exact copies of another row. Not removed: retention counts distinct users, so it is unaffected, but revenue summed from this file would count 0.00 USD twice.",
+      "metrics": {
+        "revenue_usd_in_copies": 0.0
+      }
+    },
+    {
+      "id": "duplicate_install_rows",
+      "severity": "warning",
+      "rows_affected": 1287,
+      "action": "removed",
+      "summary": "1287 exact duplicate install rows (1.48% of the visible file) were collapsed before counting, so each install counts once.",
+      "metrics": {
+        "pct_of_raw_rows": 1.48
+      }
+    },
+    {
+      "id": "duplicate_spend_rows",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "removed",
+      "summary": "0 spend rows are exact copies of another row (one report delivered twice). They are removed before the latest report is chosen and are not counted as restatements.",
+      "metrics": {}
+    },
+    {
+      "id": "event_type_unrecognised",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 events have an event_type other than session or purchase (see values). They are not counted as sessions, so they cannot make a user retained; a case variant is not reinterpreted.",
+      "metrics": {
+        "values": []
+      }
+    },
+    {
+      "id": "events_before_install",
+      "severity": "warning",
+      "rows_affected": 1006,
+      "action": "flagged",
+      "summary": "1006 events from 1000 users are timestamped before the user's install (earliest -119.98 minutes). Kept and flagged: it looks like device clock skew, and such an event can never fall in a D7 window, so retention is unaffected.",
+      "metrics": {
+        "earliest_offset_minutes": -119.98,
+        "users_affected": 1000
+      }
+    },
+    {
+      "id": "events_without_install",
+      "severity": "warning",
+      "rows_affected": 1,
+      "action": "flagged",
+      "summary": "1 events belong to 1 users with no visible install row (49900.00 USD of revenue). They cannot join a cohort, so retention ignores them; they are left in place and flagged for the studio (test accounts?).",
+      "metrics": {
+        "revenue_usd": 49900.0,
+        "users": [
+          "u_whale00000001"
+        ],
+        "users_count": 1
+      }
+    },
+    {
+      "id": "fx_rate_invalid",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "excluded",
+      "summary": "0 rows of fx_rates.csv cannot be used: unreadable, zero or negative, or two different rates for one date and currency. They are excluded; a spend row that needed one is counted in fx_rate_missing.",
+      "metrics": {}
+    },
+    {
+      "id": "fx_rate_missing",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 kept non-USD spend rows have no FX rate for their stat_date. spend_usd and cpi_usd are left empty, not zero, and another day's rate is not borrowed.",
+      "metrics": {
+        "keys": []
+      }
+    },
+    {
+      "id": "immature_cohorts",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 install weeks are not mature at as_of: some of their users have not had a full D7 window yet. They are written with is_mature = false; their retention will still rise and must not be read as churn.",
+      "metrics": {
+        "weeks": []
+      }
+    },
+    {
+      "id": "implausible_purchase_amount",
+      "severity": "warning",
+      "rows_affected": 1,
+      "action": "flagged",
+      "summary": "1 purchases are above 1000 USD (largest 49900.00). Not capped, not deleted: revenue is in no graded output. Ask the studio whether it is a test account or cents entered as dollars.",
+      "metrics": {
+        "max_revenue_usd": 49900.0,
+        "users": [
+          "u_whale00000001"
+        ]
+      }
+    },
+    {
+      "id": "install_hour_pileup",
+      "severity": "info",
+      "rows_affected": 6918,
+      "action": "flagged",
+      "summary": "UTC hour 23 holds 6918 cleaned installs against 2979 in hour 22. Low confidence: a question for the MMP, not a finding (are late installs clamped to the end of the day?). Nothing is changed.",
+      "metrics": {
+        "hour_22": 2979,
+        "hour_23": 6918
+      }
+    },
+    {
+      "id": "install_id_reused",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 install rows use an install_id that also appears under another user_id (0 ids). Nothing is merged or removed: cleaning keys on user_id, as the spec says. Question for the MMP: is install_id meant to be unique?",
+      "metrics": {
+        "install_ids": 0
+      }
+    },
+    {
+      "id": "install_reinstall_rows",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "removed",
+      "summary": "0 further rows removed because the user already had an earlier install (0 users). The earliest install is kept, so for the 0 users who changed campaign the first one gets the credit.",
+      "metrics": {
+        "users": 0,
+        "users_changed_campaign": 0
+      }
+    },
+    {
+      "id": "media_source_network_mismatch",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 mapped installs have a media_source that differs from the network of their campaign in campaigns.csv. The summary uses the campaign's network, as the spec says; the rows are kept and flagged (see pairs: media_source -> network).",
+      "metrics": {
+        "pairs": []
+      }
+    },
+    {
+      "id": "media_source_unrecognised",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 cleaned non-organic installs have a media_source that is not a network in campaigns.csv (see values). They stay on the paid side: only the exact value organic is organic, and a variant such as Organic is not reinterpreted.",
+      "metrics": {
+        "values": []
+      }
+    },
+    {
+      "id": "negative_revenue_events",
+      "severity": "info",
+      "rows_affected": 40,
+      "action": "none",
+      "summary": "40 events have negative revenue (total -200.31 USD). They look like refunds and are kept as they are, so revenue summed from the file is net of them. Ask the studio to confirm.",
+      "metrics": {
+        "total_usd": -200.31
+      }
+    },
+    {
+      "id": "network_day_bucketing_suspected",
+      "severity": "warning",
+      "rows_affected": 122,
+      "action": "flagged",
+      "summary": "1 network(s) (see flagged_networks) have a daily install gap that swings widely while their total gap agrees with the other networks. That points to a network closing its day in another time zone. Days are NOT shifted: the spec forbids it.",
+      "metrics": {
+        "flagged_networks": [
+          "tikboom"
+        ],
+        "per_network": {
+          "adglow": {
+            "daily_gap_std": 3.69,
+            "total_gap_pct": 8.82
+          },
+          "googleuac": {
+            "daily_gap_std": 3.57,
+            "total_gap_pct": 9.51
+          },
+          "metaads": {
+            "daily_gap_std": 3.96,
+            "total_gap_pct": 9.07
+          },
+          "tikboom": {
+            "daily_gap_std": 17.76,
+            "total_gap_pct": 8.3
+          },
+          "unityvid": {
+            "daily_gap_std": 3.44,
+            "total_gap_pct": 8.74
+          }
+        }
+      }
+    },
+    {
+      "id": "network_overreports_installs",
+      "severity": "info",
+      "rows_affected": 576,
+      "action": "none",
+      "summary": "On 576 of 604 comparable campaign-days the network reports more installs than the MMP (total gap per network in metrics). Nothing is changed: the two count under different attribution rules. Ask which windows apply.",
+      "metrics": {
+        "comparable_rows": 604,
+        "total_gap_pct": {
+          "adglow": 8.82,
+          "googleuac": 9.51,
+          "metaads": 9.07,
+          "tikboom": 8.3,
+          "unityvid": 8.74
+        }
+      }
+    },
+    {
+      "id": "organic_installs_excluded",
+      "severity": "info",
+      "rows_affected": 13574,
+      "action": "excluded",
+      "summary": "13574 cleaned installs have media_source = organic. They are excluded from the campaign summary (there is no spend to compare them with) and kept in the retention cohorts.",
+      "metrics": {}
+    },
+    {
+      "id": "reinstall_same_timestamp",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 users have several different install rows at their earliest timestamp. The spec does not say which one wins, so one is kept by a fixed tie-break (install_id, then campaign). Flagged because the campaign credited for these users is a choice.",
+      "metrics": {
+        "tied_rows": 0
+      }
+    },
+    {
+      "id": "spend_currency_changed",
+      "severity": "warning",
+      "rows_affected": 60,
+      "action": "flagged",
+      "summary": "60 kept spend rows are in another currency than their campaign's first report (2 campaigns, see metrics). Converted as reported, not corrected. Ask the studio whether billing really changed or only the label did.",
+      "metrics": {
+        "CAMP-007": {
+          "first_date": "2026-06-01",
+          "from": "USD",
+          "to": "EUR"
+        },
+        "CAMP-008": {
+          "first_date": "2026-06-01",
+          "from": "USD",
+          "to": "EUR"
+        }
+      }
+    },
+    {
+      "id": "spend_fx_converted_rows",
+      "severity": "info",
+      "rows_affected": 60,
+      "action": "corrected",
+      "summary": "60 kept spend rows are in a non-USD currency and were converted to USD with the rate of their own stat_date.",
+      "metrics": {
+        "currencies": [
+          "EUR"
+        ]
+      }
+    },
+    {
+      "id": "spend_missing",
+      "severity": "error",
+      "rows_affected": 6,
+      "action": "flagged",
+      "summary": "6 campaign-days have MMP installs and no spend report: 6 overdue, 0 pending (a day's report arrives during the next day). 728 installs have no cost. Shown as missing, never as zero spend.",
+      "metrics": {
+        "by_network": {
+          "unityvid": {
+            "from": "2026-06-10",
+            "rows": 6,
+            "to": "2026-06-12"
+          }
+        },
+        "installs_without_cost": 728,
+        "overdue": 6,
+        "pending": 0
+      }
+    },
+    {
+      "id": "spend_non_positive",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 kept spend rows have no positive spend: 0 empty, 0 zero, 0 negative. Kept as reported: zero is a real value, empty stays empty, a negative is not clipped. Ask the network what a negative day means.",
+      "metrics": {
+        "empty": 0,
+        "negative": 0,
+        "zero": 0
+      }
+    },
+    {
+      "id": "spend_restated_rows",
+      "severity": "warning",
+      "rows_affected": 163,
+      "action": "removed",
+      "summary": "163 spend rows were superseded by a later report for the same (stat_date, network, campaign_id), on 163 keys. The latest reported_at wins; summing the file as delivered would count that spend twice.",
+      "metrics": {
+        "keys_restated": 163
+      }
+    },
+    {
+      "id": "spend_unknown_campaign",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 kept spend rows cannot be tied to campaigns.csv: 0 name an unknown campaign_id, 0 a network other than the campaign's. They stay in the summary under the spend file's network, so the money is not dropped.",
+      "metrics": {
+        "campaign_ids": [],
+        "network_differs": 0,
+        "unknown_campaign_id": 0
+      }
+    },
+    {
+      "id": "spend_without_installs",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "flagged",
+      "summary": "0 campaign-days have a spend report and no cleaned MMP install (0.00 USD). The row is kept with mmp_installs 0 and an empty cpi_usd: the money was spent, so it is not dropped.",
+      "metrics": {
+        "spend_usd": 0.0
+      }
+    },
+    {
+      "id": "unparseable_rows",
+      "severity": "info",
+      "rows_affected": 0,
+      "action": "excluded",
+      "summary": "0 rows have an unreadable timestamp, date or number, or lack a required value, and are excluded. Counted on whole files: a row with no readable time cannot be placed before or after as_of. Every column is read as text and cast explicitly.",
+      "metrics": {
+        "campaigns": 0,
+        "mmp_events": 0,
+        "mmp_installs": 0,
+        "network_spend": 0
+      }
+    }
+  ]
+}
