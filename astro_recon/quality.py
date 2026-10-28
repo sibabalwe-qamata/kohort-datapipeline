@@ -16,9 +16,27 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
+from enum import Enum
 
-SEVERITIES = ("info", "warning", "error")
-ACTIONS = ("removed", "corrected", "excluded", "flagged", "none")
+
+class Severity(str, Enum):
+    """A `str` subclass, so it compares equal to its text and json writes it as that text."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class Action(str, Enum):
+    REMOVED = "removed"
+    CORRECTED = "corrected"
+    EXCLUDED = "excluded"
+    FLAGGED = "flagged"
+    NONE = "none"
+
+
+SEVERITIES = tuple(severity.value for severity in Severity)
+ACTIONS = tuple(action.value for action in Action)
 SUMMARY_MAX_CHARS = 300
 LIST_MAX_ITEMS = 10  # a metric list is a sample for a human reader, not an export of the rows
 METRIC_DECIMALS = 2
@@ -32,17 +50,21 @@ class Check:
     """One entry of the report. Invalid values raise here, where the check is built, not in the grader."""
 
     id: str
-    severity: str
+    severity: Severity
     rows_affected: int
-    action: str
+    action: Action
     summary: str
     metrics: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Plain text is accepted and turned into the enum, so only the exact lower-case words get through.
         if self.severity not in SEVERITIES:
             raise ValueError(f"{self.id}: severity {self.severity!r} is not one of {SEVERITIES}")
         if self.action not in ACTIONS:
             raise ValueError(f"{self.id}: action {self.action!r} is not one of {ACTIONS}")
+        # The dataclass is frozen, so the coerced values are set the way dataclasses set fields.
+        object.__setattr__(self, "severity", Severity(self.severity))
+        object.__setattr__(self, "action", Action(self.action))
         # bool is a subclass of int in Python, so True would otherwise pass as a count of 1.
         if not isinstance(self.rows_affected, int) or isinstance(self.rows_affected, bool):
             raise ValueError(f"{self.id}: rows_affected must be an integer, got {self.rows_affected!r}")
@@ -55,10 +77,15 @@ class Check:
 
 
 def make_check(
-    id: str, severity: str, rows_affected: int, action: str, summary: str, metrics: dict | None = None
+    id: str,
+    severity: Severity,
+    rows_affected: int,
+    action: Action,
+    summary: str,
+    metrics: dict | None = None,
 ) -> Check:
     """Build a Check. `severity` is the level used when something was found; nothing found is `info`."""
-    found = severity if rows_affected > 0 else "info"
+    found = severity if rows_affected > 0 else Severity.INFO
     return Check(id, found, rows_affected, action, summary, metrics or {})
 
 
@@ -76,9 +103,9 @@ def _as_dict(check: Check) -> dict:
     """Dicts keep insertion order and `write_json` does not re-sort, so this is the key order on disk."""
     return {
         "id": check.id,
-        "severity": check.severity,
+        "severity": check.severity.value,
         "rows_affected": check.rows_affected,
-        "action": check.action,
+        "action": check.action.value,
         "summary": check.summary,
         "metrics": _tidy(check.metrics),
     }

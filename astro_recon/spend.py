@@ -6,10 +6,34 @@ Input contract: `date` (Date), `network`, `campaign_id`, `spend_amount` (Float64
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import polars as pl
 
 KEY = ["date", "network", "campaign_id"]
 USD = "USD"
+
+
+@dataclass(frozen=True)
+class CleanedSpend:
+    """Each frame the spend rules produce, and the row counts the quality report needs."""
+
+    deduped: pl.DataFrame  # visible spend after exact duplicates were removed
+    kept: pl.DataFrame  # the latest report per key, with `rate` and `spend_usd`
+    duplicate_rows: int  # removed by drop_duplicate_reports
+    restated_rows: int  # superseded by a later report for the same key
+
+
+def clean(spend: pl.DataFrame, fx: pl.DataFrame) -> CleanedSpend:
+    """One report per key, then USD."""
+    deduped, duplicate_rows = drop_duplicate_reports(spend)
+    latest, restated_rows = latest_reports(deduped)
+    return CleanedSpend(
+        deduped=deduped,
+        kept=convert_fx(latest, fx),
+        duplicate_rows=duplicate_rows,
+        restated_rows=restated_rows,
+    )
 
 
 def drop_duplicate_reports(spend: pl.DataFrame) -> tuple[pl.DataFrame, int]:

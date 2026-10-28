@@ -12,9 +12,20 @@ from importlib import resources
 import duckdb
 import polars as pl
 
-RETENTION_COLUMNS = ["install_week", "cohort_size", "d7_retained_users", "d7_retention_pct", "is_mature"]
+from astro_recon import formats
+from astro_recon.formats import FormatSpec
 
-# Output dtypes, in column order. DuckDB already returns these; the cast pins the contract.
+# The header, in order, and how each column is written.
+RETENTION_FORMAT: FormatSpec = {
+    "install_week": formats.iso_date,
+    "cohort_size": formats.integer,
+    "d7_retained_users": formats.integer,
+    "d7_retention_pct": formats.decimal(2),
+    "is_mature": formats.boolean,
+}
+RETENTION_COLUMNS = list(RETENTION_FORMAT)
+
+# Output dtypes, by column. DuckDB already returns these; the cast pins the contract.
 RETENTION_SCHEMA: dict[str, pl.DataType] = {
     "install_week": pl.Date(),
     "cohort_size": pl.Int64(),

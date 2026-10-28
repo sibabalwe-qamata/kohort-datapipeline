@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import polars as pl
 
-KEY = ["date", "network", "campaign_id"]
-SUMMARY_COLUMNS = ["date", "network", "campaign_id", "mmp_installs", "network_reported_installs",
-                   "spend_usd", "cpi_usd", "install_gap_pct", "spend_reported_at"]
+from astro_recon import formats
+from astro_recon.formats import FormatSpec
+from astro_recon.spend import KEY
+
+# The header, in order, and how each column is written.
+SUMMARY_FORMAT: FormatSpec = {
+    "date": formats.iso_date,
+    "network": formats.text,
+    "campaign_id": formats.text,
+    "mmp_installs": formats.integer,
+    "network_reported_installs": formats.integer,
+    "spend_usd": formats.decimal(2),
+    "cpi_usd": formats.decimal(4),
+    "install_gap_pct": formats.decimal(2),
+    "spend_reported_at": formats.utc_timestamp,
+}
+SUMMARY_COLUMNS = list(SUMMARY_FORMAT)
 
 
 def build_summary(mapped: pl.DataFrame, kept_spend: pl.DataFrame) -> pl.DataFrame:

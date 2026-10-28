@@ -1,20 +1,23 @@
 """Write the graded files so that the bytes are the same on every run and every platform.
 
-Each value is turned into text here by a fixed rule and written with the standard library, so the
-output does not depend on how a dataframe library prints a float, a null or a line ending.
+Each value is turned into text by a fixed rule (`formats.py`, per the spec of each output) and written
+with the standard library, so the output does not depend on how a dataframe library prints a float, a
+null or a line ending.
 """
 from __future__ import annotations
 
 import csv
 import io
 import json
-import math
 import os
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
+
+from astro_recon import retention, summary
+from astro_recon.formats import format_rows
+
 
 def write_csv(path: Path, columns: list[str], rows: Iterable[Sequence[str]]) -> None:
     """UTF-8, no BOM, a header row, and "\\n" line endings on every platform."""
@@ -33,34 +36,12 @@ def write_json(path: Path, payload: dict) -> None:
 
 def summary_rows(df: pl.DataFrame) -> list[list[str]]:
     """One text row per frame row, in `summary.SUMMARY_COLUMNS` order. Rows are not reordered."""
-    return [
-        [
-            _date(row["date"]),
-            row["network"],
-            row["campaign_id"],
-            _integer(row["mmp_installs"]),
-            _integer(row["network_reported_installs"]),
-            _decimal(row["spend_usd"], 2),
-            _decimal(row["cpi_usd"], 4),
-            _decimal(row["install_gap_pct"], 2),
-            _timestamp(row["spend_reported_at"]),
-        ]
-        for row in df.iter_rows(named=True)
-    ]
+    return format_rows(df, summary.SUMMARY_FORMAT)
 
 
 def retention_rows(df: pl.DataFrame) -> list[list[str]]:
     """One text row per frame row, in `retention.RETENTION_COLUMNS` order. Rows are not reordered."""
-    return [
-        [
-            _date(row["install_week"]),
-            _integer(row["cohort_size"]),
-            _integer(row["d7_retained_users"]),
-            _decimal(row["d7_retention_pct"], 2),
-            "true" if row["is_mature"] else "false",
-        ]
-        for row in df.iter_rows(named=True)
-    ]
+    return format_rows(df, retention.RETENTION_FORMAT)
 
 
 def _replace_file(path: Path, data: bytes) -> None:
@@ -71,31 +52,3 @@ def _replace_file(path: Path, data: bytes) -> None:
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(data)
     os.replace(temporary, path)
-
-
-def _date(value: date | None) -> str:
-    return "" if value is None else value.isoformat()
-
-
-def _timestamp(value: datetime | None) -> str:
-    """A zone-less datetime holding UTC, written with the Z the input files use."""
-    return "" if value is None else value.isoformat(timespec="seconds") + "Z"
-
-
-def _integer(value: float | None) -> str:
-    """A whole number without a decimal point, even when the column arrived as a float (2.0 -> 2)."""
-    if value is None:
-        return ""
-    if value != int(value):
-        raise ValueError(f"expected a whole number, got {value!r}")
-    return str(int(value))
-
-
-def _decimal(value: float | None, places: int) -> str:
-    """A fixed number of decimals. NaN or infinity here means a bug upstream, so it fails loudly."""
-    if value is None:
-        return ""
-    if not math.isfinite(value):
-        raise ValueError(f"expected a finite number, got {value!r}")
-    text = f"{value:.{places}f}"
-    return text.lstrip("-") if float(text) == 0 else text  # never "-0.00"

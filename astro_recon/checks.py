@@ -10,15 +10,13 @@ past its 300 characters on an unusual dataset. Severities follow the convention 
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass
-from datetime import date
 
 import polars as pl
 
-from astro_recon.installs import count_normalised
-from astro_recon.io import Inputs
-from astro_recon.quality import LIST_MAX_ITEMS, Check, make_check
+from astro_recon.installs import campaign_as_id, campaign_names, is_normalised
+from astro_recon.quality import LIST_MAX_ITEMS, Action, Check, Severity, make_check
 from astro_recon.spend import KEY, is_fx_converted, is_fx_missing
+from astro_recon.stages import Stages
 
 # A network's report for day D arrives during day D + 1, so at the end of day D it cannot be there yet.
 REPORT_LAG_DAYS = 1
@@ -36,29 +34,6 @@ PILEUP_RATIO = 1.5
 PILEUP_MIN_INSTALLS = 20
 
 EVENT_TYPES = ["session", "purchase"]
-
-
-@dataclass(frozen=True)
-class Stages:
-    """Every intermediate result of one run. The checks read it; the pipeline is the only writer."""
-
-    as_of: date
-    inputs: Inputs  # the whole files, typed
-    visible: Inputs  # after the --as-of filter
-    deduped: pl.DataFrame  # visible installs after rule 1
-    cleaned: pl.DataFrame  # after rule 2: one row per user
-    organic: pl.DataFrame
-    paid: pl.DataFrame
-    mapped: pl.DataFrame
-    unmapped: pl.DataFrame
-    reports: pl.DataFrame  # visible spend after exact duplicates were removed
-    kept: pl.DataFrame  # the latest report per key, with `rate` and `spend_usd`
-    summary: pl.DataFrame
-    retention: pl.DataFrame
-    duplicate_installs: int  # returned by installs.dedupe_exact
-    reinstall_rows: int  # returned by installs.keep_earliest_per_user
-    duplicate_reports: int  # returned by spend.drop_duplicate_reports
-    restated_rows: int  # returned by spend.latest_reports
 
 
 def all_checks(stages: Stages) -> list[Check]:
@@ -142,10 +117,10 @@ def _total_gap_pct(comparable: pl.DataFrame) -> dict[str, float]:
 
 # ------------------------------------------------------------------ the nine required checks
 def duplicate_install_rows(stages: Stages) -> Check:
-    removed = stages.duplicate_installs
+    removed = stages.installs.duplicate_rows
     pct = _pct(removed, stages.visible.installs.height)
     return make_check(
-        "duplicate_install_rows", "warning", removed, "removed",
+        "duplicate_install_rows", Severity.WARNING, removed, Action.REMOVED,
         f"{removed} exact duplicate install rows ({pct}% of the visible file) were collapsed before "
         "counting, so each install counts once.",
         {"pct_of_raw_rows": pct},
@@ -153,13 +128,15 @@ def duplicate_install_rows(stages: Stages) -> Check:
 
 
 def install_reinstall_rows(stages: Stages) -> Check:
-    removed = stages.reinstall_rows
+    removed = stages.installs.reinstall_rows
     # n_unique counts a missing campaign as a value, so organic first and paid later is a change.
-    per_user = stages.deduped.group_by("user_id").agg(rows=pl.len(), campaigns=pl.col("campaign").n_unique())
+    per_user = stages.installs.deduped.group_by("user_id").agg(
+        rows=pl.len(), campaigns=pl.col("campaign").n_unique()
+    )
     repeat = per_user.filter(pl.col("rows") > 1)
     changed = repeat.filter(pl.col("campaigns") > 1).height
     return make_check(
-        "install_reinstall_rows", "warning", removed, "removed",
+        "install_reinstall_rows", Severity.WARNING, removed, Action.REMOVED,
         f"{removed} further rows removed because the user already had an earlier install ({repeat.height} "
         f"users). The earliest install is kept, so for the {changed} users who changed campaign the first "
         "one gets the credit.",
@@ -168,22 +145,22 @@ def install_reinstall_rows(stages: Stages) -> Check:
 
 
 def organic_installs_excluded(stages: Stages) -> Check:
-    organic = stages.organic.height
+    organic = stages.installs.organic.height
     return make_check(
-        "organic_installs_excluded", "info", organic, "excluded",
+        "organic_installs_excluded", Severity.INFO, organic, Action.EXCLUDED,
         f"{organic} cleaned installs have media_source = organic. They are excluded from the campaign "
         "summary (there is no spend to compare them with) and kept in the retention cohorts.",
     )
 
 
 def campaign_id_normalised(stages: Stages) -> Check:
-    corrected = count_normalised(stages.mapped)
-    changed = stages.mapped.filter(pl.col("campaign") != pl.col("campaign_id"))
-    as_id = pl.col("campaign").str.strip_chars().str.to_uppercase()
-    by_id = changed.filter(as_id == pl.col("campaign_id")).height
-    by_name = changed.height - by_id
+    changed = stages.installs.mapped.filter(is_normalised())
+    corrected = changed.height
+    # The id test has priority in map_campaigns, so a row that passes it was matched by id.
+    by_id = changed.filter(campaign_as_id() == pl.col("campaign_id")).height
+    by_name = corrected - by_id
     return make_check(
-        "campaign_id_normalised", "warning", corrected, "corrected",
+        "campaign_id_normalised", Severity.WARNING, corrected, Action.CORRECTED,
         f"{corrected} paid installs carried a campaign value that was not the canonical id: {by_id} matched "
         f"after trimming or upper-casing, {by_name} by campaign name. An exact-match join would have "
         "dropped them.",
@@ -192,7 +169,7 @@ def campaign_id_normalised(stages: Stages) -> Check:
 
 
 def campaign_unmapped(stages: Stages) -> Check:
-    unmapped = stages.unmapped
+    unmapped = stages.installs.unmapped
     # Most frequent first, ties by value, so the sample is the same on every run.
     counts = (
         unmapped.select(pl.col("campaign").fill_null(""))
@@ -201,7 +178,7 @@ def campaign_unmapped(stages: Stages) -> Check:
         .sort(["rows", "campaign"], descending=[True, False])
     )
     return make_check(
-        "campaign_unmapped", "error", unmapped.height, "excluded",
+        "campaign_unmapped", Severity.ERROR, unmapped.height, Action.EXCLUDED,
         f"{unmapped.height} paid installs carry a campaign value that matches no campaign id or name "
         f"({counts.height} distinct values, see raw_values). They are excluded from the summary and counted "
         "here; nothing is guessed or fuzzy-matched.",
@@ -210,10 +187,10 @@ def campaign_unmapped(stages: Stages) -> Check:
 
 
 def spend_restated_rows(stages: Stages) -> Check:
-    restated = stages.restated_rows
-    keys = stages.reports.group_by(KEY).agg(rows=pl.len()).filter(pl.col("rows") > 1).height
+    restated = stages.spend.restated_rows
+    keys = stages.spend.deduped.group_by(KEY).agg(rows=pl.len()).filter(pl.col("rows") > 1).height
     return make_check(
-        "spend_restated_rows", "warning", restated, "removed",
+        "spend_restated_rows", Severity.WARNING, restated, Action.REMOVED,
         f"{restated} spend rows were superseded by a later report for the same (stat_date, network, "
         f"campaign_id), on {keys} keys. The latest reported_at wins; summing the file as delivered would "
         "count that spend twice.",
@@ -222,9 +199,9 @@ def spend_restated_rows(stages: Stages) -> Check:
 
 
 def spend_fx_converted_rows(stages: Stages) -> Check:
-    converted = stages.kept.filter(is_fx_converted())
+    converted = stages.spend.kept.filter(is_fx_converted())
     return make_check(
-        "spend_fx_converted_rows", "info", converted.height, "corrected",
+        "spend_fx_converted_rows", Severity.INFO, converted.height, Action.CORRECTED,
         f"{converted.height} kept spend rows are in a non-USD currency and were converted to USD with the "
         "rate of their own stat_date.",
         {"currencies": converted["currency"].unique().sort().to_list()[:LIST_MAX_ITEMS]},
@@ -232,10 +209,10 @@ def spend_fx_converted_rows(stages: Stages) -> Check:
 
 
 def fx_rate_missing(stages: Stages) -> Check:
-    missing = stages.kept.filter(is_fx_missing())
+    missing = stages.spend.kept.filter(is_fx_missing())
     keys = missing.select("date", "currency").unique().sort(["date", "currency"]).head(LIST_MAX_ITEMS)
     return make_check(
-        "fx_rate_missing", "error", missing.height, "flagged",
+        "fx_rate_missing", Severity.ERROR, missing.height, Action.FLAGGED,
         f"{missing.height} kept non-USD spend rows have no FX rate for their stat_date. spend_usd and "
         "cpi_usd are left empty, not zero, and another day's rate is not borrowed.",
         {"keys": [f"{day.isoformat()} {currency}" for day, currency in keys.iter_rows()]},
@@ -259,7 +236,7 @@ def spend_missing(stages: Stages) -> Check:
         for row in ranges.iter_rows(named=True)
     }
     return make_check(
-        "spend_missing", "error" if overdue else "warning", missing.height, "flagged",
+        "spend_missing", Severity.ERROR if overdue else Severity.WARNING, missing.height, Action.FLAGGED,
         f"{missing.height} campaign-days have MMP installs and no spend report: {overdue} overdue, {pending} "
         f"pending (a day's report arrives during the next day). {installs} installs have no cost. Shown as "
         "missing, never as zero spend.",
@@ -273,7 +250,7 @@ def unparseable_rows(stages: Stages) -> Check:
     per_file = {name: stages.inputs.rejected_rows.get(name, 0) for name in files}
     total = sum(per_file.values())
     return make_check(
-        "unparseable_rows", "error", total, "excluded",
+        "unparseable_rows", Severity.ERROR, total, Action.EXCLUDED,
         f"{total} rows have an unreadable timestamp, date or number, or lack a required value, and are "
         "excluded. Counted on whole files: a row with no readable time cannot be placed before or after "
         "as_of. Every column is read as text and cast explicitly.",
@@ -284,7 +261,7 @@ def unparseable_rows(stages: Stages) -> Check:
 def fx_rate_invalid(stages: Stages) -> Check:
     invalid = stages.inputs.rejected_rows.get("fx_rates", 0)
     return make_check(
-        "fx_rate_invalid", "warning", invalid, "excluded",
+        "fx_rate_invalid", Severity.WARNING, invalid, Action.EXCLUDED,
         f"{invalid} rows of fx_rates.csv cannot be used: unreadable, zero or negative, or two different "
         "rates for one date and currency. They are excluded; a spend row that needed one is counted in "
         "fx_rate_missing.",
@@ -294,10 +271,10 @@ def fx_rate_invalid(stages: Stages) -> Check:
 # ------------------------------------------------------------------ installs
 def reinstall_same_timestamp(stages: Stages) -> Check:
     is_earliest = pl.col("install_ts") == pl.col("install_ts").min().over("user_id")
-    at_earliest = stages.deduped.filter(is_earliest).group_by("user_id").agg(rows=pl.len())
+    at_earliest = stages.installs.deduped.filter(is_earliest).group_by("user_id").agg(rows=pl.len())
     tied = at_earliest.filter(pl.col("rows") > 1)
     return make_check(
-        "reinstall_same_timestamp", "warning", tied.height, "flagged",
+        "reinstall_same_timestamp", Severity.WARNING, tied.height, Action.FLAGGED,
         f"{tied.height} users have several different install rows at their earliest timestamp. The spec does "
         "not say which one wins, so one is kept by a fixed tie-break (install_id, then campaign). Flagged "
         "because the campaign credited for these users is a choice.",
@@ -306,11 +283,11 @@ def reinstall_same_timestamp(stages: Stages) -> Check:
 
 
 def install_id_reused(stages: Stages) -> Check:
-    with_id = stages.deduped.filter(pl.col("install_id").is_not_null())
+    with_id = stages.installs.deduped.filter(pl.col("install_id").is_not_null())
     reused = with_id.filter(pl.col("user_id").n_unique().over("install_id") > 1)
     ids = reused["install_id"].n_unique()
     return make_check(
-        "install_id_reused", "warning", reused.height, "flagged",
+        "install_id_reused", Severity.WARNING, reused.height, Action.FLAGGED,
         f"{reused.height} install rows use an install_id that also appears under another user_id ({ids} "
         "ids). Nothing is merged or removed: cleaning keys on user_id, as the spec says. Question for the "
         "MMP: is install_id meant to be unique?",
@@ -321,9 +298,9 @@ def install_id_reused(stages: Stages) -> Check:
 def media_source_unrecognised(stages: Stages) -> Check:
     networks = stages.visible.campaigns["network"].unique().to_list()
     is_known = pl.col("media_source").is_in(networks).fill_null(False)  # a missing media_source is not known
-    unknown = stages.paid.filter(~is_known)
+    unknown = stages.installs.paid.filter(~is_known)
     return make_check(
-        "media_source_unrecognised", "warning", unknown.height, "flagged",
+        "media_source_unrecognised", Severity.WARNING, unknown.height, Action.FLAGGED,
         f"{unknown.height} cleaned non-organic installs have a media_source that is not a network in "
         "campaigns.csv (see values). They stay on the paid side: only the exact value organic is organic, "
         "and a variant such as Organic is not reinterpreted.",
@@ -333,11 +310,11 @@ def media_source_unrecognised(stages: Stages) -> Check:
 
 def media_source_network_mismatch(stages: Stages) -> Check:
     differs = (pl.col("media_source") != pl.col("network")).fill_null(True)
-    mismatched = stages.mapped.filter(differs)
+    mismatched = stages.installs.mapped.filter(differs)
     pair = pl.format("{} -> {}", pl.col("media_source").fill_null(""), pl.col("network"))
     pairs = mismatched.select(pair=pair)
     return make_check(
-        "media_source_network_mismatch", "warning", mismatched.height, "flagged",
+        "media_source_network_mismatch", Severity.WARNING, mismatched.height, Action.FLAGGED,
         f"{mismatched.height} mapped installs have a media_source that differs from the network of their "
         "campaign in campaigns.csv. The summary uses the campaign's network, as the spec says; the rows are "
         "kept and flagged (see pairs: media_source -> network).",
@@ -346,21 +323,19 @@ def media_source_network_mismatch(stages: Stages) -> Check:
 
 
 def campaign_reference_ambiguous(stages: Stages) -> Check:
-    # Same comparison as installs.map_campaigns: case-insensitive, reference text otherwise as-is.
-    name = pl.col("campaign_name").str.to_lowercase()
-    named = stages.visible.campaigns.with_columns(name=name).filter(pl.col("name").is_not_null())
-    shared = named.filter(pl.col("name").is_duplicated())
+    # The names map_campaigns leaves out of its lookup.
+    shared = campaign_names(stages.visible.campaigns).filter(pl.col("name").is_duplicated())
     return make_check(
-        "campaign_reference_ambiguous", "error", shared.height, "flagged",
+        "campaign_reference_ambiguous", Severity.ERROR, shared.height, Action.FLAGGED,
         f"{shared.height} rows of campaigns.csv share their campaign name with another id (compared "
-        "case-insensitively). Such a name cannot point to one id, so an install carrying only the name is not "
-        "matched by guessing.",
+        "case-insensitively). Such a name cannot point to one id, so an install carrying only the name is "
+        "not matched by guessing.",
         {"names": _sample(shared["name"])},
     )
 
 
 def install_hour_pileup(stages: Stages) -> Check:
-    hours = stages.cleaned.select(hour=pl.col("install_ts").dt.hour())
+    hours = stages.installs.cleaned.select(hour=pl.col("install_ts").dt.hour())
     hour_22 = hours.filter(pl.col("hour") == 22).height
     hour_23 = hours.filter(pl.col("hour") == 23).height
     piled_up = hour_22 >= PILEUP_MIN_INSTALLS and hour_23 > PILEUP_RATIO * hour_22
@@ -376,16 +351,16 @@ def install_hour_pileup(stages: Stages) -> Check:
             "hour 22."
         )
     return make_check(
-        "install_hour_pileup", "info", hour_23 if piled_up else 0, "flagged", summary,
+        "install_hour_pileup", Severity.INFO, hour_23 if piled_up else 0, Action.FLAGGED, summary,
         {"hour_22": hour_22, "hour_23": hour_23},
     )
 
 
 # ------------------------------------------------------------------ spend
 def duplicate_spend_rows(stages: Stages) -> Check:
-    removed = stages.duplicate_reports
+    removed = stages.spend.duplicate_rows
     return make_check(
-        "duplicate_spend_rows", "warning", removed, "removed",
+        "duplicate_spend_rows", Severity.WARNING, removed, Action.REMOVED,
         f"{removed} spend rows are exact copies of another row (one report delivered twice). They are "
         "removed before the latest report is chosen and are not counted as restatements.",
     )
@@ -393,7 +368,7 @@ def duplicate_spend_rows(stages: Stages) -> Check:
 
 def spend_currency_changed(stages: Stages) -> Check:
     # After this sort the first row of a campaign is its earliest-dated report.
-    ordered = stages.kept.sort(["campaign_id", "date", "network"])
+    ordered = stages.spend.kept.sort(["campaign_id", "date", "network"])
     ordered = ordered.with_columns(first_currency=pl.col("currency").first().over("campaign_id"))
     changed = ordered.filter(pl.col("currency") != pl.col("first_currency"))
     switches = changed.unique(subset=["campaign_id"], keep="first", maintain_order=True)
@@ -404,7 +379,7 @@ def spend_currency_changed(stages: Stages) -> Check:
         for row in switches.iter_rows(named=True)
     }
     return make_check(
-        "spend_currency_changed", "warning", changed.height, "flagged",
+        "spend_currency_changed", Severity.WARNING, changed.height, Action.FLAGGED,
         f"{changed.height} kept spend rows are in another currency than their campaign's first report "
         f"({switches.height} campaigns, see metrics). Converted as reported, not corrected. Ask the studio "
         "whether billing really changed or only the label did.",
@@ -417,7 +392,7 @@ def spend_without_installs(stages: Stages) -> Check:
     spend_only = stages.summary.filter(has_report & (pl.col("mmp_installs") == 0))
     usd = _cents(spend_only, "spend_usd") / 100
     return make_check(
-        "spend_without_installs", "warning", spend_only.height, "flagged",
+        "spend_without_installs", Severity.WARNING, spend_only.height, Action.FLAGGED,
         f"{spend_only.height} campaign-days have a spend report and no cleaned MMP install ({usd:.2f} USD). "
         "The row is kept with mmp_installs 0 and an empty cpi_usd: the money was spent, so it is not "
         "dropped.",
@@ -427,12 +402,12 @@ def spend_without_installs(stages: Stages) -> Check:
 
 def spend_non_positive(stages: Stages) -> Check:
     amount = pl.col("spend_amount")
-    empty = stages.kept.filter(amount.is_null()).height
-    zero = stages.kept.filter(amount == 0).height
-    negative = stages.kept.filter(amount < 0).height
+    empty = stages.spend.kept.filter(amount.is_null()).height
+    zero = stages.spend.kept.filter(amount == 0).height
+    negative = stages.spend.kept.filter(amount < 0).height
     total = empty + zero + negative
     return make_check(
-        "spend_non_positive", "warning", total, "flagged",
+        "spend_non_positive", Severity.WARNING, total, Action.FLAGGED,
         f"{total} kept spend rows have no positive spend: {empty} empty, {zero} zero, {negative} negative. "
         "Kept as reported: zero is a real value, empty stays empty, a negative is not clipped. Ask the "
         "network what a negative day means.",
@@ -442,12 +417,12 @@ def spend_non_positive(stages: Stages) -> Check:
 
 def spend_unknown_campaign(stages: Stages) -> Check:
     reference = stages.visible.campaigns.select("campaign_id", campaign_network="network")
-    joined = stages.kept.join(reference, on="campaign_id", how="left")
+    joined = stages.spend.kept.join(reference, on="campaign_id", how="left")
     unknown = joined.filter(pl.col("campaign_network").is_null())
     differs = joined.filter(pl.col("campaign_network") != pl.col("network"))
     total = unknown.height + differs.height
     return make_check(
-        "spend_unknown_campaign", "error", total, "flagged",
+        "spend_unknown_campaign", Severity.ERROR, total, Action.FLAGGED,
         f"{total} kept spend rows cannot be tied to campaigns.csv: {unknown.height} name an unknown "
         f"campaign_id, {differs.height} a network other than the campaign's. They stay in the summary under "
         "the spend file's network, so the money is not dropped.",
@@ -463,7 +438,7 @@ def network_overreports_installs(stages: Stages) -> Check:
     comparable = _comparable(stages.summary)
     over = comparable.filter(pl.col("network_reported_installs") > pl.col("mmp_installs"))
     return make_check(
-        "network_overreports_installs", "info", over.height, "none",
+        "network_overreports_installs", Severity.INFO, over.height, Action.NONE,
         f"On {over.height} of {comparable.height} comparable campaign-days the network reports more installs "
         "than the MMP (total gap per network in metrics). Nothing is changed: the two count under different "
         "attribution rules. Ask which windows apply.",
@@ -506,18 +481,18 @@ def network_day_bucketing_suspected(stages: Stages) -> Check:
         for network, value in spread.items()
     }
     return make_check(
-        "network_day_bucketing_suspected", "warning", rows, "flagged", summary,
+        "network_day_bucketing_suspected", Severity.WARNING, rows, Action.FLAGGED, summary,
         {"flagged_networks": flagged[:LIST_MAX_ITEMS], "per_network": per_network},
     )
 
 
 # ------------------------------------------------------------------ events and retention
 def events_without_install(stages: Stages) -> Check:
-    orphans = stages.visible.events.join(stages.cleaned.select("user_id"), on="user_id", how="anti")
+    orphans = stages.visible.events.join(stages.installs.cleaned.select("user_id"), on="user_id", how="anti")
     users = orphans["user_id"].n_unique()
     usd = _cents(orphans, "revenue") / 100
     return make_check(
-        "events_without_install", "warning", orphans.height, "flagged",
+        "events_without_install", Severity.WARNING, orphans.height, Action.FLAGGED,
         f"{orphans.height} events belong to {users} users with no visible install row ({usd:.2f} USD of "
         "revenue). They cannot join a cohort, so retention ignores them; they are left in place and flagged "
         "for the studio (test accounts?).",
@@ -526,7 +501,7 @@ def events_without_install(stages: Stages) -> Check:
 
 
 def events_before_install(stages: Stages) -> Check:
-    first_install = stages.cleaned.select("user_id", "install_ts")
+    first_install = stages.installs.cleaned.select("user_id", "install_ts")
     early = stages.visible.events.join(first_install, on="user_id", how="inner").filter(
         pl.col("event_ts") < pl.col("install_ts")
     )
@@ -534,7 +509,7 @@ def events_before_install(stages: Stages) -> Check:
     seconds = early.select((pl.col("event_ts") - pl.col("install_ts")).dt.total_seconds().min()).item()
     minutes = round(seconds / 60, 2) if seconds is not None else 0.0
     return make_check(
-        "events_before_install", "warning", early.height, "flagged",
+        "events_before_install", Severity.WARNING, early.height, Action.FLAGGED,
         f"{early.height} events from {users} users are timestamped before the user's install (earliest "
         f"{minutes} minutes). Kept and flagged: it looks like device clock skew, and such an event can never "
         "fall in a D7 window, so retention is unaffected.",
@@ -548,7 +523,7 @@ def duplicate_event_rows(stages: Stages) -> Check:
     copies = events.height - distinct.height
     usd = (_cents(events, "revenue") - _cents(distinct, "revenue")) / 100
     return make_check(
-        "duplicate_event_rows", "warning", copies, "flagged",
+        "duplicate_event_rows", Severity.WARNING, copies, Action.FLAGGED,
         f"{copies} event rows are exact copies of another row. Not removed: retention counts distinct users, "
         f"so it is unaffected, but revenue summed from this file would count {usd:.2f} USD twice.",
         {"revenue_usd_in_copies": usd},
@@ -559,7 +534,7 @@ def event_type_unrecognised(stages: Stages) -> Check:
     is_known = pl.col("event_type").is_in(EVENT_TYPES).fill_null(False)
     unknown = stages.visible.events.filter(~is_known)
     return make_check(
-        "event_type_unrecognised", "warning", unknown.height, "flagged",
+        "event_type_unrecognised", Severity.WARNING, unknown.height, Action.FLAGGED,
         f"{unknown.height} events have an event_type other than session or purchase (see values). They are "
         "not counted as sessions, so they cannot make a user retained; a case variant is not reinterpreted.",
         {"values": _sample(unknown["event_type"])},
@@ -571,7 +546,7 @@ def implausible_purchase_amount(stages: Stages) -> Check:
     large = stages.visible.events.filter(is_purchase & (pl.col("revenue") > IMPLAUSIBLE_PURCHASE_USD))
     largest = large["revenue"].max() or 0.0
     return make_check(
-        "implausible_purchase_amount", "warning", large.height, "flagged",
+        "implausible_purchase_amount", Severity.WARNING, large.height, Action.FLAGGED,
         f"{large.height} purchases are above {IMPLAUSIBLE_PURCHASE_USD:.0f} USD (largest {largest:.2f}). Not "
         "capped, not deleted: revenue is in no graded output. Ask the studio whether it is a test account or "
         "cents entered as dollars.",
@@ -583,7 +558,7 @@ def negative_revenue_events(stages: Stages) -> Check:
     negative = stages.visible.events.filter(pl.col("revenue") < 0)
     usd = _cents(negative, "revenue") / 100
     return make_check(
-        "negative_revenue_events", "info", negative.height, "none",
+        "negative_revenue_events", Severity.INFO, negative.height, Action.NONE,
         f"{negative.height} events have negative revenue (total {usd:.2f} USD). They look like refunds and "
         "are kept as they are, so revenue summed from the file is net of them. Ask the studio to confirm.",
         {"total_usd": usd},
@@ -594,7 +569,7 @@ def immature_cohorts(stages: Stages) -> Check:
     # At most two weeks can be immature (a week matures 13 days after its Monday), so the list is short.
     weeks = stages.retention.filter(~pl.col("is_mature"))["install_week"].sort().to_list()
     return make_check(
-        "immature_cohorts", "info", len(weeks), "flagged",
+        "immature_cohorts", Severity.INFO, len(weeks), Action.FLAGGED,
         f"{len(weeks)} install weeks are not mature at as_of: some of their users have not had a full D7 "
         "window yet. They are written with is_mature = false; their retention will still rise and must not "
         "be read as churn.",

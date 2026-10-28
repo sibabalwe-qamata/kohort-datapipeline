@@ -15,21 +15,10 @@ import polars as pl
 TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 DATE_FORMAT = "%Y-%m-%d"
 
-# File stem -> the columns the pipeline needs from it. Extra columns are ignored.
-REQUIRED_COLUMNS = {
-    "mmp_installs": [
-        "install_id", "user_id", "install_ts_utc", "platform", "country", "media_source", "campaign",
-    ],
-    "mmp_events": ["user_id", "event_ts_utc", "event_type", "revenue_usd"],
-    "network_spend": [
-        "stat_date", "network", "campaign_id", "spend", "currency", "reported_installs", "reported_at",
-    ],
-    "campaigns": ["campaign_id", "campaign_name", "network"],
-    "fx_rates": ["date", "currency", "usd_per_unit"],
-}
-
 # A parser takes a column name and returns an expression that is null where the text will not parse.
 Parser = Callable[[str], pl.Expr]
+# A file's own last step after typing: the usable rows, and how many more rows were not usable.
+Finish = Callable[[pl.DataFrame], tuple[pl.DataFrame, int]]
 
 
 class InputError(Exception):
@@ -48,59 +37,54 @@ class Inputs:
     rejected_rows: dict[str, int]
 
 
+@dataclass(frozen=True)
+class FileSpec:
+    """One input file: the columns it must have, how they are cast, and which values may not be empty."""
+
+    stem: str
+    columns: tuple[str, ...]  # needed from the file; extra columns are ignored
+    parsed: dict[str, tuple[str, Parser]]  # new column -> (source column, parser)
+    non_null: tuple[str, ...]  # a row with one of these empty is rejected
+    keep: tuple[str, ...] | None = None  # the columns handed on; None keeps them all
+    finish: Finish | None = None
+
+    @property
+    def filename(self) -> str:
+        return f"{self.stem}.csv"
+
+    def read(self, data_dir: Path) -> pl.DataFrame:
+        return _read_text(data_dir / self.filename, list(self.columns))
+
+    def parse(self, raw: pl.DataFrame) -> tuple[pl.DataFrame, int]:
+        """The typed frame and how many rows were rejected, counting the finish step's too."""
+        typed, rejected = _typed(raw, self.parsed, list(self.non_null))
+        if self.finish is not None:
+            typed, unusable = self.finish(typed)
+            rejected += unusable
+        if self.keep is not None:
+            typed = typed.select(self.keep)
+        return typed, rejected
+
+
 def load_inputs(data_dir: Path) -> Inputs:
-    """Load and type all five files, or raise InputError naming what is wrong with the folder."""
+    """Load and type the files in `FILES`, or raise InputError naming what is wrong with the folder."""
     if not data_dir.is_dir():
         raise InputError(f"--data {data_dir} is not a directory")
-    missing = [f"{name}.csv" for name in REQUIRED_COLUMNS if not (data_dir / f"{name}.csv").is_file()]
+    missing = [spec.filename for spec in FILES if not (data_dir / spec.filename).is_file()]
     if missing:
         raise InputError(f"missing input file(s) in {data_dir}: {', '.join(missing)}")
 
-    raw = {name: _read_text(data_dir / f"{name}.csv", columns) for name, columns in REQUIRED_COLUMNS.items()}
-
-    installs, bad_installs = _typed(
-        raw["mmp_installs"],
-        {"install_ts": ("install_ts_utc", _timestamp)},
-        required=["user_id", "install_ts_utc"],
-    )
-    events, bad_events = _typed(
-        raw["mmp_events"],
-        {"event_ts": ("event_ts_utc", _timestamp), "revenue": ("revenue_usd", _number)},
-        required=["user_id", "event_ts_utc"],
-    )
-    spend, bad_spend = _typed(
-        raw["network_spend"],
-        {
-            "date": ("stat_date", _date),
-            "spend_amount": ("spend", _number),
-            "installs_reported": ("reported_installs", _integer),
-            "reported_ts": ("reported_at", _timestamp),
-        },
-        required=["stat_date", "network", "campaign_id", "currency", "reported_at"],
-    )
-    campaigns, bad_campaigns = _usable_campaigns(raw["campaigns"])
-    fx, bad_fx = _typed(
-        raw["fx_rates"],
-        {"fx_date": ("date", _date), "rate": ("usd_per_unit", _number)},
-        required=["date", "currency", "usd_per_unit"],
-    )
-    fx, bad_rates = _usable_rates(fx)
+    # Every file's shape is checked before any is typed, so a bad header is reported first.
+    raw = {spec.stem: spec.read(data_dir) for spec in FILES}
+    typed = {spec.stem: spec.parse(raw[spec.stem]) for spec in FILES}
 
     return Inputs(
-        installs=installs,
-        events=events.select("user_id", "event_ts", "event_type", "revenue"),
-        spend=spend.select(
-            "date", "network", "campaign_id", "spend_amount", "currency", "installs_reported", "reported_ts"
-        ),
-        campaigns=campaigns,
-        fx=fx,
-        rejected_rows={
-            "mmp_installs": bad_installs,
-            "mmp_events": bad_events,
-            "network_spend": bad_spend,
-            "campaigns": bad_campaigns,
-            "fx_rates": bad_fx + bad_rates,
-        },
+        installs=typed["mmp_installs"][0],
+        events=typed["mmp_events"][0],
+        spend=typed["network_spend"][0],
+        campaigns=typed["campaigns"][0],
+        fx=typed["fx_rates"][0],
+        rejected_rows={stem: rejected for stem, (_, rejected) in typed.items()},
     )
 
 
@@ -153,20 +137,17 @@ def _typed(
     and the row is kept, unless that column is listed in `required`.
     """
     out = df.with_columns([parser(source).alias(new) for new, (source, parser) in parsed.items()])
-    failed = pl.any_horizontal(
-        [pl.col(source).is_not_null() & pl.col(new).is_null() for new, (source, _) in parsed.items()]
-    )
-    empty = pl.any_horizontal([pl.col(name).is_null() for name in required])
-    good = out.filter(~(failed | empty))
+    rejects = [pl.col(source).is_not_null() & pl.col(new).is_null() for new, (source, _) in parsed.items()]
+    rejects += [pl.col(name).is_null() for name in required]
+    good = out.filter(~pl.any_horizontal(rejects)) if rejects else out
     return good, out.height - good.height
 
 
-def _usable_campaigns(campaigns: pl.DataFrame) -> tuple[pl.DataFrame, int]:
-    """Reference rows that have an id and a network. A repeated id stops the run."""
-    usable = campaigns.drop_nulls(["campaign_id", "network"])
-    if usable["campaign_id"].is_duplicated().any():
+def _unique_campaign_ids(campaigns: pl.DataFrame) -> tuple[pl.DataFrame, int]:
+    """A repeated id stops the run."""
+    if campaigns["campaign_id"].is_duplicated().any():
         raise InputError("campaigns.csv: campaign_id is not unique, so every join on it would duplicate rows")
-    return usable, campaigns.height - usable.height
+    return campaigns, 0
 
 
 def _usable_rates(fx: pl.DataFrame) -> tuple[pl.DataFrame, int]:
@@ -180,3 +161,53 @@ def _usable_rates(fx: pl.DataFrame) -> tuple[pl.DataFrame, int]:
     distinct = positive.unique(maintain_order=True)
     usable = distinct.filter(~pl.struct("date", "currency").is_duplicated())
     return usable, (rates.height - positive.height) + (distinct.height - usable.height)
+
+
+# The five input files, in the order they are read and reported.
+FILES = (
+    FileSpec(
+        stem="mmp_installs",
+        columns=(
+            "install_id", "user_id", "install_ts_utc", "platform", "country", "media_source", "campaign",
+        ),
+        parsed={"install_ts": ("install_ts_utc", _timestamp)},
+        non_null=("user_id", "install_ts_utc"),
+    ),
+    FileSpec(
+        stem="mmp_events",
+        columns=("user_id", "event_ts_utc", "event_type", "revenue_usd"),
+        parsed={"event_ts": ("event_ts_utc", _timestamp), "revenue": ("revenue_usd", _number)},
+        non_null=("user_id", "event_ts_utc"),
+        keep=("user_id", "event_ts", "event_type", "revenue"),
+    ),
+    FileSpec(
+        stem="network_spend",
+        columns=(
+            "stat_date", "network", "campaign_id", "spend", "currency", "reported_installs", "reported_at",
+        ),
+        parsed={
+            "date": ("stat_date", _date),
+            "spend_amount": ("spend", _number),
+            "installs_reported": ("reported_installs", _integer),
+            "reported_ts": ("reported_at", _timestamp),
+        },
+        non_null=("stat_date", "network", "campaign_id", "currency", "reported_at"),
+        keep=(
+            "date", "network", "campaign_id", "spend_amount", "currency", "installs_reported", "reported_ts",
+        ),
+    ),
+    FileSpec(
+        stem="campaigns",
+        columns=("campaign_id", "campaign_name", "network"),
+        parsed={},
+        non_null=("campaign_id", "network"),
+        finish=_unique_campaign_ids,
+    ),
+    FileSpec(
+        stem="fx_rates",
+        columns=("date", "currency", "usd_per_unit"),
+        parsed={"fx_date": ("date", _date), "rate": ("usd_per_unit", _number)},
+        non_null=("date", "currency", "usd_per_unit"),
+        finish=_usable_rates,
+    ),
+)

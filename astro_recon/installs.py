@@ -9,6 +9,8 @@ parsed UTC timestamp (naive Datetime).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import polars as pl
 
 RAW_COLUMNS = ["install_id", "user_id", "install_ts_utc", "platform", "country", "media_source", "campaign"]
@@ -18,6 +20,38 @@ ORGANIC = "organic"
 # timestamp, so we pick one deterministically: install_id, then raw campaign, then every other raw column,
 # which makes the order total (rule 1 already removed rows where all seven columns are equal).
 TIE_BREAK = ["install_id", "campaign", "media_source", "platform", "country", "install_ts_utc"]
+
+
+@dataclass(frozen=True)
+class CleanedInstalls:
+    """Each frame the five rules produce, and the row counts the quality report needs."""
+
+    deduped: pl.DataFrame  # after rule 1
+    cleaned: pl.DataFrame  # after rule 2: one row per user
+    paid: pl.DataFrame
+    organic: pl.DataFrame
+    mapped: pl.DataFrame
+    unmapped: pl.DataFrame
+    duplicate_rows: int  # removed by rule 1
+    reinstall_rows: int  # removed by rule 2
+
+
+def clean(installs: pl.DataFrame, campaigns: pl.DataFrame) -> CleanedInstalls:
+    """Rules 1-5 in the spec's order."""
+    deduped, duplicate_rows = dedupe_exact(installs)
+    cleaned, reinstall_rows = keep_earliest_per_user(deduped)
+    paid, organic = split_organic(cleaned)
+    mapped, unmapped = map_campaigns(paid, campaigns)
+    return CleanedInstalls(
+        deduped=deduped,
+        cleaned=cleaned,
+        paid=paid,
+        organic=organic,
+        mapped=mapped,
+        unmapped=unmapped,
+        duplicate_rows=duplicate_rows,
+        reinstall_rows=reinstall_rows,
+    )
 
 
 def dedupe_exact(installs: pl.DataFrame) -> tuple[pl.DataFrame, int]:
@@ -63,16 +97,15 @@ def map_campaigns(paid: pl.DataFrame, campaigns: pl.DataFrame) -> tuple[pl.DataF
     known_ids = campaigns["campaign_id"].to_list()
     network_of = dict(zip(campaigns["campaign_id"], campaigns["network"]))
 
-    # Names are compared case-insensitively. A name used by two ids is ambiguous: we do not guess which
-    # campaign was meant, so that name is left out of the lookup and its rows end up unmapped.
-    names = campaigns.select(name=pl.col("campaign_name").str.to_lowercase(), campaign_id="campaign_id")
-    names = names.filter(pl.col("name").is_not_null() & pl.col("name").is_unique())
+    # A name used by two ids is ambiguous: we do not guess which campaign was meant, so that name is left
+    # out of the lookup and its rows end up unmapped.
+    names = campaign_names(campaigns).filter(pl.col("name").is_unique())
     id_of_name = dict(zip(names["name"], names["campaign_id"]))
 
-    trimmed = pl.col("campaign").str.strip_chars()
-    as_id = trimmed.str.to_uppercase()
+    as_id = campaign_as_id()
     by_id = pl.when(as_id.is_in(known_ids)).then(as_id)
-    by_name = trimmed.str.to_lowercase().replace_strict(id_of_name, default=None, return_dtype=pl.String)
+    as_name = pl.col("campaign").str.strip_chars().str.to_lowercase()
+    by_name = as_name.replace_strict(id_of_name, default=None, return_dtype=pl.String)
 
     # coalesce takes the first non-null value: the id match has priority over the name match.
     resolved = paid.with_columns(campaign_id=pl.coalesce(by_id, by_name))
@@ -86,6 +119,22 @@ def map_campaigns(paid: pl.DataFrame, campaigns: pl.DataFrame) -> tuple[pl.DataF
     return mapped, unmapped
 
 
+def campaign_as_id() -> pl.Expr:
+    """Rule 4's id test: the raw `campaign` trimmed and upper-cased, to compare with a campaign_id."""
+    return pl.col("campaign").str.strip_chars().str.to_uppercase()
+
+
+def campaign_names(campaigns: pl.DataFrame) -> pl.DataFrame:
+    """Rule 4's name test: (name, campaign_id) per reference row with a name, lower-cased to compare."""
+    names = campaigns.select(name=pl.col("campaign_name").str.to_lowercase(), campaign_id="campaign_id")
+    return names.filter(pl.col("name").is_not_null())
+
+
+def is_normalised() -> pl.Expr:
+    """Filter for the output of `map_campaigns`: the raw `campaign` text is not already the final id."""
+    return pl.col("campaign") != pl.col("campaign_id")
+
+
 def count_normalised(mapped: pl.DataFrame) -> int:
     """Mapped rows whose raw `campaign` text is not already the final id (`campaign_id_normalised`)."""
-    return mapped.filter(pl.col("campaign") != pl.col("campaign_id")).height
+    return mapped.filter(is_normalised()).height
