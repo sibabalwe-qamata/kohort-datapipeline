@@ -79,10 +79,6 @@ publish solutions.
 We run our grader on your repo within two working days, then schedule the
 60-minute follow-up within a week. You hear the outcome either way.
 
-## Questions
-
-Email michelle@kohort.io.
-
 ---
 
 ## Solution: how to run it
